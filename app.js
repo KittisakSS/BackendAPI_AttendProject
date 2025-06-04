@@ -311,45 +311,51 @@ app.get("/user/:tec_id", (req, res) => {
 
 
 // Add Leave Record
-app.post("/leave", jsonParser, function (req, res) {
+app.post("/leave", jsonParser, (req, res) => {
   const {
     tec_id,
     leave_type,
     written_at,
-    role,
-    position,
     absence_date,
-    last_leave_date,
     phone,
     leave_status,
     approval_status,
+    last_leave_date,
+    position, // เพิ่ม field position
   } = req.body;
 
+  // ตรวจสอบว่าข้อมูลที่จำเป็นครบถ้วน
+  if (!leave_type || !written_at || !absence_date || !phone || !leave_status || !position) {
+    return res.status(400).json({ status: "error", message: "ข้อมูลไม่ครบถ้วน" });
+  }
+
+  // แทรกข้อมูลลงในตาราง leaverecords
   connection.execute(
     `INSERT INTO leaverecords 
-    (tec_id, leave_type, written_at, role, position, absence_date, last_leave_date, phone, leave_status, approval_status) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (tec_id, leave_type, written_at, absence_date, phone, leave_status, approval_status, last_leave_date, position) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       tec_id,
       leave_type,
       written_at,
-      role,
-      position,
       absence_date,
-      last_leave_date,
       phone,
       leave_status,
       approval_status,
+      last_leave_date || null, // ถ้าไม่มีค่า ให้ใช้ null
+      position, // บันทึก position ลงฐานข้อมูล
     ],
-    function (err) {
+    (err) => {
       if (err) {
-        res.status(500).json({ status: "error", message: err.message });
-      } else {
-        res.json({ status: "ok", message: "Leave record added successfully" });
+        return res.status(500).json({ status: "error", message: err.message });
       }
+      res.json({ status: "ok", message: "บันทึกข้อมูลการลาสำเร็จ" });
     }
   );
 });
+
+
+
 
 // Get Leave Records by tec_id
 app.get("/leave/:tec_id", function (req, res) {
@@ -441,7 +447,74 @@ app.get("/leaverecords", (req, res) => {
   );
 });
 
+app.get("/leaverecords/:tec_id", (req, res) => {
+  const { tec_id } = req.params;
 
+  if (!tec_id) {
+    return res.status(400).json({ status: "error", message: "Missing tec_id" });
+  }
+
+  // ใช้ JOIN เพื่อดึง tec_name และ position จากตาราง users
+  const query = `
+    SELECT leaverecords.*, users.tec_name, users.position 
+    FROM leaverecords 
+    JOIN users ON leaverecords.tec_id = users.tec_id
+    WHERE leaverecords.tec_id = ?
+  `;
+
+  connection.execute(query, [tec_id], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ status: "error", message: err.message });
+    }
+
+    if (rows.length === 0) {
+      return res.status(404).json({ status: "error", message: "No leave records found" });
+    }
+
+    res.json({ status: "ok", data: rows });
+  });
+});
+
+
+
+// Get last absence_date for a specific user
+app.get("/last_leave/:tec_id", (req, res) => {
+  const tec_id = req.params.tec_id;
+
+  connection.execute(
+    "SELECT absence_date FROM leaverecords WHERE tec_id = ? ORDER BY leave_id DESC LIMIT 1",
+    [tec_id],
+    (err, results) => {
+      if (err) {
+        console.error("Database Error:", err);
+        return res.status(500).json({ status: "error", message: err.message });
+      }
+
+      // console.log("Results:", results);
+
+      if (results.length === 0) {
+        return res.json({ status: "ok", last_leave_date: "ไม่มีข้อมูล" });
+      }
+
+      res.json({ status: "ok", last_leave_date: results[0].absence_date });
+    }
+  );
+});
+
+app.post("/updateApproval", (req, res) => {
+  const { leave_id, approval_status } = req.body;
+  connection.execute(
+    "UPDATE leaverecords SET approval_status = ? WHERE leave_id = ?",
+    [approval_status, leave_id],
+    (err, results) => {
+      if (err) {
+        res.status(500).json({ status: "error", message: err.message });
+        return;
+      }
+      res.json({ status: "ok", message: "Approval status updated successfully" });
+    }
+  );
+});
 
 
 app.listen(3333, function () {
