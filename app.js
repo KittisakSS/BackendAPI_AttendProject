@@ -15,12 +15,10 @@ app.use(cors());
 app.use(bodyParser.json());
 
 const mysql = require("mysql2");
+require('dotenv').config()
+
 // Create the connection to database
-const connection = mysql.createConnection({
-  host: "localhost",
-  user: "root",
-  database: "projdb",
-});
+const connection = mysql.createConnection(process.env.DATABASE_URL);
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -517,6 +515,6 @@ app.post("/updateApproval", (req, res) => {
 });
 
 
-app.listen(3333, function () {
+app.listen(process.env.PORT || 3333, function () {
   console.log("CORS-enabled web server listening on port 3333");
 });
