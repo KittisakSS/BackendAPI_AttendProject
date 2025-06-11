@@ -243,36 +243,40 @@ app.post("/users", jsonParser, function (req, res) {
 });
 
 // Update User
-app.put("/users/:id", upload.single("profileImage"), (req, res) => {
-  const { tec_name, email, role, position } = req.body;
+app.put("/users/:id", upload.single("profileImage"), async (req, res) => {
+  const { tec_name, email, role, position, password } = req.body;
   const t_profile = req.file ? req.file.filename : null; // รับชื่อไฟล์จาก multer
 
-  // ดึงข้อมูล t_profile เดิมจากฐานข้อมูลถ้าไม่มีการอัปโหลดรูปใหม่
-  connection.execute(
-    "SELECT t_profile FROM users WHERE tec_id = ?",
-    [req.params.id],
-    (err, results) => {
-      if (err) {
-        return res.status(500).json({ status: "error", message: err.message });
-      }
+  try {
+    // ดึงข้อมูล t_profile เดิมจากฐานข้อมูลถ้าไม่มีการอัปโหลดรูปใหม่
+    const [results] = await connection.promise().execute(
+      "SELECT t_profile FROM users WHERE tec_id = ?",
+      [req.params.id]
+    );
 
-      const currentProfile = results[0]?.t_profile || null;
-      const newProfile = t_profile || currentProfile; // ใช้รูปใหม่ถ้ามี หรือใช้รูปเดิมถ้าไม่มีการอัปโหลดใหม่
+    const currentProfile = results[0]?.t_profile || null;
+    const newProfile = t_profile || currentProfile; // ใช้รูปใหม่ถ้ามี หรือใช้รูปเดิมถ้าไม่มีการอัปโหลดใหม่
 
-      // อัปเดตข้อมูลผู้ใช้ในฐานข้อมูล
-      connection.execute(
-        "UPDATE users SET tec_name = ?, email = ?, role = ?, position = ?, t_profile = ? WHERE tec_id = ?",
-        [tec_name, email, role, position, newProfile, req.params.id],
-        (err) => {
-          if (err) {
-            return res.status(500).json({ status: "error", message: err.message });
-          }
-          res.json({ status: "ok", message: "User updated successfully" });
-        }
-      );
+    // ตรวจสอบว่ามีการส่งรหัสผ่านใหม่หรือไม่
+    let updateQuery = "UPDATE users SET tec_name = ?, email = ?, role = ?, position = ?, t_profile = ? WHERE tec_id = ?";
+    let updateValues = [tec_name, email, role, position, newProfile, req.params.id];
+
+    if (password) {
+      // แฮชรหัสผ่านใหม่
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+      updateQuery = "UPDATE users SET tec_name = ?, email = ?, role = ?, position = ?, t_profile = ?, password = ? WHERE tec_id = ?";
+      updateValues = [tec_name, email, role, position, newProfile, hashedPassword, req.params.id];
     }
-  );
+
+    // อัปเดตข้อมูลผู้ใช้ในฐานข้อมูล
+    await connection.promise().execute(updateQuery, updateValues);
+
+    res.json({ status: "ok", message: "User updated successfully" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
 });
+
 
 
 
