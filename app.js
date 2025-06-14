@@ -35,10 +35,10 @@ app.use("/uploads", express.static("uploads"));
 
 // User Registration with profile image upload
 app.post("/register", upload.single("profileImage"), (req, res) => {
-  const { tec_name, email, password, role, position } = req.body;
+  const { tec_id, tec_name, email, password, role, position } = req.body;
   const t_profile = req.file ? req.file.filename : null;
 
-  if (!tec_name || !email || !password || !role || !position) {
+  if (!tec_id || !tec_name || !email || !password || !role || !position) {
     return res.status(400).json({ status: "error", message: "Incomplete data" });
   }
 
@@ -46,20 +46,21 @@ app.post("/register", upload.single("profileImage"), (req, res) => {
     if (err) return res.status(500).json({ status: "error", message: err.message });
 
     connection.execute(
-      "INSERT INTO users (tec_name, email, password, role, position, t_profile) VALUES (?, ?, ?, ?, ?, ?)",
-      [tec_name, email, hash, role, position, t_profile],
+      "INSERT INTO users (tec_id, tec_name, email, password, role, position, t_profile) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [tec_id, tec_name, email, hash, role, position, t_profile],
       (err) => {
         if (err) return res.status(500).json({ status: "error", message: err.message });
 
         res.json({
           status: "ok",
           message: "Registration successful",
-          data: { tec_name, email, role, position, t_profile },
+          data: { tec_id, tec_name, email, role, position, t_profile },
         });
       }
     );
   });
 });
+
 
 
 app.post("/login", jsonParser, (req, res) => {
