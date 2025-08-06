@@ -133,7 +133,7 @@ app.post("/checkin", jsonParser, function (req, res) {
         return;
       }
       if (rows.length > 0) {
-        res.json({ status: "error", message: "คุณลงเวลาเข้างานไปแล้ว!" });
+        res.json({ status: "error", message: "กรุณาลงเวลาออกงานของครั้งก่อนหน้าก่อน!" });
         return;
       }
 
