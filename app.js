@@ -124,7 +124,7 @@ app.post("/register", upload.single("profileImage"), async (req, res) => {
         requestBody: { role: "reader", type: "anyone" },
       });
 
-      t_profile = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
+      t_profile = `${fileId}`;
     }
 
     // 🗄 บันทึกลง DB
@@ -148,6 +148,17 @@ app.post("/register", upload.single("profileImage"), async (req, res) => {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
+
+app.get("/image/:id", async (req, res) => {
+  const { id } = req.params;
+  const driveRes = await drive.files.get(
+    { fileId: id, alt: "media" },
+    { responseType: "stream" }
+  );
+  res.setHeader("Content-Type", "image/jpeg");
+  driveRes.data.pipe(res);
+});
+
 
 app.post("/login", jsonParser, (req, res) => {
   connection.execute(
