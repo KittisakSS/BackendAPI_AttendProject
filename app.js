@@ -8,8 +8,8 @@ const saltRounds = 10;
 var jwt = require("jsonwebtoken");
 const secret = "project-login-2024";
 
-const multer = require("multer");
-const path = require("path");
+// const multer = require("multer");
+// const path = require("path");
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -20,48 +20,192 @@ require('dotenv').config()
 // Create the connection to database
 const connection = mysql.createConnection(process.env.DATABASE_URL);
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  },
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => {
+//     cb(null, "uploads/");
+//   },
+//   filename: (req, file, cb) => {
+//     cb(null, Date.now() + path.extname(file.originalname));
+//   },
+// });
+// const upload = multer({ storage });
+
+// // Serve uploaded files
+// app.use("/uploads", express.static("uploads"));
+
+// // User Registration with profile image upload
+// app.post("/register", upload.single("profileImage"), (req, res) => {
+//   const { tec_id, tec_name, email, password, role, position } = req.body;
+//   const t_profile = req.file ? req.file.filename : null;
+
+//   if (!tec_id || !tec_name || !email || !password || !role || !position) {
+//     return res.status(400).json({ status: "error", message: "Incomplete data" });
+//   }
+
+//   bcrypt.hash(password, saltRounds, (err, hash) => {
+//     if (err) return res.status(500).json({ status: "error", message: err.message });
+
+//     connection.execute(
+//       "INSERT INTO users (tec_id, tec_name, email, password, role, position, t_profile) VALUES (?, ?, ?, ?, ?, ?, ?)",
+//       [tec_id, tec_name, email, hash, role, position, t_profile],
+//       (err) => {
+//         if (err) return res.status(500).json({ status: "error", message: err.message });
+
+//         res.json({
+//           status: "ok",
+//           message: "Registration successful",
+//           data: { tec_id, tec_name, email, role, position, t_profile },
+//         });
+//       }
+//     );
+//   });
+// });
+
+
+// API แก้ไขข้อมูลผู้ใช้ + อัปโหลดรูปไป Google Drive
+
+// อัปโหลดโปรไฟล์ไป Google Drive
+
+const { google } = require("googleapis");
+const fs = require("fs");
+const path = require("path");
+
+// โหลด key จากไฟล์ JSON ของ Service Account
+const KEYFILEPATH = path.join(__dirname, "starlit-summit-473415-p2-817d777483c3.json");
+const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
+
+const auth = new google.auth.GoogleAuth({
+  keyFile: KEYFILEPATH,
+  scopes: SCOPES,
 });
-const upload = multer({ storage });
 
-// Serve uploaded files
-app.use("/uploads", express.static("uploads"));
+const drive = google.drive({ version: "v3", auth });
 
-// User Registration with profile image upload
-app.post("/register", upload.single("profileImage"), (req, res) => {
+
+app.post("/register", upload.single("profileImage"), async (req, res) => {
   const { tec_id, tec_name, email, password, role, position } = req.body;
-  const t_profile = req.file ? req.file.filename : null;
 
-  if (!tec_id || !tec_name || !email || !password || !role || !position) {
-    return res.status(400).json({ status: "error", message: "Incomplete data" });
+  try {
+    let t_profile = null;
+
+    if (req.file) {
+      const fileMetadata = {
+        name: req.file.originalname,
+        parents: ["GOOGLE_DRIVE_FOLDER_ID"], // เอา Folder ID จากลิงก์ Google Drive
+      };
+      const media = {
+        mimeType: req.file.mimetype,
+        body: fs.createReadStream(req.file.path),
+      };
+
+      // อัปโหลดไฟล์
+      const file = await drive.files.create({
+        resource: fileMetadata,
+        media: media,
+        fields: "id",
+      });
+
+      // สร้าง URL สำหรับเปิดไฟล์
+      const fileId = file.data.id;
+      await drive.permissions.create({
+        fileId: fileId,
+        requestBody: {
+          role: "reader",
+          type: "anyone",
+        },
+      });
+
+      t_profile = `https://drive.google.com/uc?export=view&id=${fileId}`;
+    }
+
+    // เก็บแค่ URL ลง DB
+    bcrypt.hash(password, saltRounds, (err, hash) => {
+      if (err) return res.status(500).json({ status: "error", message: err.message });
+
+      connection.execute(
+        "INSERT INTO users (tec_id, tec_name, email, password, role, position, t_profile) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [tec_id, tec_name, email, hash, role, position, t_profile],
+        (err) => {
+          if (err) return res.status(500).json({ status: "error", message: err.message });
+
+          res.json({
+            status: "ok",
+            message: "Registration successful",
+            data: { tec_id, tec_name, email, role, position, t_profile },
+          });
+        }
+      );
+    });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
   }
-
-  bcrypt.hash(password, saltRounds, (err, hash) => {
-    if (err) return res.status(500).json({ status: "error", message: err.message });
-
-    connection.execute(
-      "INSERT INTO users (tec_id, tec_name, email, password, role, position, t_profile) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [tec_id, tec_name, email, hash, role, position, t_profile],
-      (err) => {
-        if (err) return res.status(500).json({ status: "error", message: err.message });
-
-        res.json({
-          status: "ok",
-          message: "Registration successful",
-          data: { tec_id, tec_name, email, role, position, t_profile },
-        });
-      }
-    );
-  });
 });
 
 
+app.put("/users/:id", upload.single("profileImage"), async (req, res) => {
+  const { tec_name, email, role, position, password } = req.body;
+  const userId = req.params.id;
+
+  try {
+    // ดึงข้อมูลเดิมก่อน
+    const [results] = await connection.promise().execute(
+      "SELECT t_profile FROM users WHERE tec_id = ?",
+      [userId]
+    );
+    if (results.length === 0) {
+      return res.status(404).json({ status: "error", message: "User not found" });
+    }
+
+    let t_profile = results[0].t_profile;
+
+    // ถ้ามีการอัปโหลดไฟล์ใหม่ → อัปโหลดไป Google Drive
+    if (req.file) {
+      const fileMetadata = {
+        name: req.file.originalname,
+        parents: ["1pXCx_H-Dc00pxMAV4j3I2GqCqqdLNQ62"], // ใส่ Folder ID จาก Google Drive
+      };
+      const media = {
+        mimeType: req.file.mimetype,
+        body: fs.createReadStream(req.file.path),
+      };
+
+      // อัปโหลดไฟล์
+      const file = await drive.files.create({
+        resource: fileMetadata,
+        media: media,
+        fields: "id",
+      });
+
+      // ให้สิทธิ์ไฟล์เป็นสาธารณะ
+      await drive.permissions.create({
+        fileId: file.data.id,
+        requestBody: { role: "reader", type: "anyone" },
+      });
+
+      // สร้าง URL สำหรับดูรูป
+      t_profile = `https://drive.google.com/uc?export=view&id=${file.data.id}`;
+    }
+
+    // ถ้ามีการเปลี่ยนรหัสผ่าน → เข้ารหัสใหม่
+    let query =
+      "UPDATE users SET tec_name=?, email=?, role=?, position=?, t_profile=? WHERE tec_id=?";
+    let values = [tec_name, email, role, position, t_profile, userId];
+
+    if (password) {
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+      query =
+        "UPDATE users SET tec_name=?, email=?, role=?, position=?, t_profile=?, password=? WHERE tec_id=?";
+      values = [tec_name, email, role, position, t_profile, hashedPassword, userId];
+    }
+
+    // อัปเดตข้อมูลใน DB
+    await connection.promise().execute(query, values);
+
+    res.json({ status: "ok", message: "User updated successfully" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
 
 app.post("/login", jsonParser, (req, res) => {
   connection.execute(
