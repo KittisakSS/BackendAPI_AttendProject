@@ -71,7 +71,7 @@ const upload = multer({ storage });
 // API แก้ไขข้อมูลผู้ใช้ + อัปโหลดรูปไป Google Drive
 
 // โหลด key จากไฟล์ JSON ของ Service Account
-const KEYFILEPATH = path.join(__dirname, "starlit-summit-473415-p2-817d777483c3.json");
+const KEYFILEPATH = path.join(__dirname, "GOOGLE_SERVICE_KEY");
 const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
 
 const auth = new google.auth.GoogleAuth({
