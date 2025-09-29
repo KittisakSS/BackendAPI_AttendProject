@@ -8,8 +8,8 @@ const saltRounds = 10;
 var jwt = require("jsonwebtoken");
 const secret = "project-login-2024";
 
-// const multer = require("multer");
-// const path = require("path");
+const multer = require("multer");
+const path = require("path");
 
 const { google } = require("googleapis");
 const fs = require("fs");
