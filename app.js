@@ -124,7 +124,7 @@ app.post("/register", upload.single("profileImage"), async (req, res) => {
         requestBody: { role: "reader", type: "anyone" },
       });
 
-      t_profile = `https://drive.google.com/uc?export=view&id=${fileId}`;
+      t_profile = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
     }
 
     // 🗄 บันทึกลง DB
