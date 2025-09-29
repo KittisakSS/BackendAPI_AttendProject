@@ -13,6 +13,7 @@ const path = require("path");
 
 const { google } = require("googleapis");
 const fs = require("fs");
+const { Readable } = require("stream");
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -80,6 +81,13 @@ const auth = new google.auth.GoogleAuth({
 
 const drive = google.drive({ version: "v3", auth });
 
+function bufferToStream(buffer) {
+  const stream = new Readable();
+  stream.push(buffer);
+  stream.push(null);
+  return stream;
+}
+
 
 app.post("/register", upload.single("profileImage"), async (req, res) => {
   const { tec_id, tec_name, email, password, role, position } = req.body;
@@ -96,7 +104,7 @@ app.post("/register", upload.single("profileImage"), async (req, res) => {
 
       const media = {
         mimeType: req.file.mimetype,
-        body: Buffer.from(req.file.buffer), // ใช้ buffer จาก memoryStorage
+        body: bufferToStream(req.file.buffer), // แปลง Buffer → Stream
       };
 
       // สร้างไฟล์บน Google Drive
