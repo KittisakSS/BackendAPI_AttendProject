@@ -68,18 +68,17 @@ const connection = mysql.createConnection(process.env.DATABASE_URL);
 // ตั้งค่า multer แบบ Memory Storage
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
-// API แก้ไขข้อมูลผู้ใช้ + อัปโหลดรูปไป Google Drive
 
-// โหลด key จากไฟล์ JSON ของ Service Account
-const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
+// 📌 OAuth2 (ใช้ quota ของ user)
+const oAuth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI // ไม่ใช้จริงใน backend แต่ต้องใส่ให้ครบ
+);
 
 // ใช้ credentials จาก .env แทน keyFile
-const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_KEY),
-  scopes: SCOPES,
-});
-
-const drive = google.drive({ version: "v3", auth });
+oAuth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+const drive = google.drive({ version: "v3", auth: oAuth2Client });
 
 function bufferToStream(buffer) {
   const stream = new Readable();
@@ -92,131 +91,63 @@ function bufferToStream(buffer) {
 app.post("/register", upload.single("profileImage"), async (req, res) => {
   const { tec_id, tec_name, email, password, role, position } = req.body;
 
+  if (!tec_id || !tec_name || !email || !password || !role || !position) {
+    return res.status(400).json({ status: "error", message: "Incomplete data" });
+  }
+
   try {
     let t_profile = null;
 
     if (req.file) {
-      // อัปโหลดไฟล์ไป Google Drive
+      // 📤 Upload ไป Google Drive ของคุณ
       const fileMetadata = {
         name: req.file.originalname,
-        parents: ["1pXCx_H-Dc00pxMAV4j3I2GqCqqdLNQ62"], // Folder ID ของ Google Drive
+        parents: [process.env.GOOGLE_DRIVE_FOLDER_ID], // ใส่ Folder ID ที่คุณมีสิทธิ์
       };
 
       const media = {
         mimeType: req.file.mimetype,
-        body: bufferToStream(req.file.buffer), // แปลง Buffer → Stream
+        body: bufferToStream(req.file.buffer),
       };
 
-      // สร้างไฟล์บน Google Drive
       const file = await drive.files.create({
         resource: fileMetadata,
-        media: media,
+        media,
         fields: "id",
       });
 
-      // เปิดสิทธิ์ไฟล์ให้ทุกคนดูได้
       const fileId = file.data.id;
+
+      // 🔓 ทำให้ดูได้ทุกคน
       await drive.permissions.create({
-        fileId: fileId,
-        requestBody: {
-          role: "reader",
-          type: "anyone",
-        },
+        fileId,
+        requestBody: { role: "reader", type: "anyone" },
       });
 
-      // สร้างลิงก์ไฟล์
       t_profile = `https://drive.google.com/uc?export=view&id=${fileId}`;
     }
 
-    // บันทึกข้อมูลลง DB
-    bcrypt.hash(password, saltRounds, (err, hash) => {
-      if (err) return res.status(500).json({ status: "error", message: err.message });
+    // 🗄 บันทึกลง DB
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-      connection.execute(
-        "INSERT INTO users (tec_id, tec_name, email, password, role, position, t_profile) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [tec_id, tec_name, email, hash, role, position, t_profile],
-        (err) => {
-          if (err) return res.status(500).json({ status: "error", message: err.message });
+    connection.execute(
+      "INSERT INTO users (tec_id, tec_name, email, password, role, position, t_profile) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [tec_id, tec_name, email, hashedPassword, role, position, t_profile],
+      (err) => {
+        if (err)
+          return res.status(500).json({ status: "error", message: err.message });
 
-          res.json({
-            status: "ok",
-            message: "Registration successful",
-            data: { tec_id, tec_name, email, role, position, t_profile },
-          });
-        }
-      );
-    });
+        res.json({
+          status: "ok",
+          message: "Registration successful",
+          data: { tec_id, tec_name, email, role, position, t_profile },
+        });
+      }
+    );
   } catch (err) {
     res.status(500).json({ status: "error", message: err.message });
   }
 });
-
-
-
-// app.put("/users/:id", upload.single("profileImage"), async (req, res) => {
-//   const { tec_name, email, role, position, password } = req.body;
-//   const userId = req.params.id;
-
-//   try {
-//     // ดึงข้อมูลเดิมก่อน
-//     const [results] = await connection.promise().execute(
-//       "SELECT t_profile FROM users WHERE tec_id = ?",
-//       [userId]
-//     );
-//     if (results.length === 0) {
-//       return res.status(404).json({ status: "error", message: "User not found" });
-//     }
-
-//     let t_profile = results[0].t_profile;
-
-//     // ถ้ามีการอัปโหลดไฟล์ใหม่ → อัปโหลดไป Google Drive
-//     if (req.file) {
-//       const fileMetadata = {
-//         name: req.file.originalname,
-//         parents: ["1pXCx_H-Dc00pxMAV4j3I2GqCqqdLNQ62"], // ใส่ Folder ID จาก Google Drive
-//       };
-//       const media = {
-//         mimeType: req.file.mimetype,
-//         body: fs.createReadStream(req.file.path),
-//       };
-
-//       // อัปโหลดไฟล์
-//       const file = await drive.files.create({
-//         resource: fileMetadata,
-//         media: media,
-//         fields: "id",
-//       });
-
-//       // ให้สิทธิ์ไฟล์เป็นสาธารณะ
-//       await drive.permissions.create({
-//         fileId: file.data.id,
-//         requestBody: { role: "reader", type: "anyone" },
-//       });
-
-//       // สร้าง URL สำหรับดูรูป
-//       t_profile = `https://drive.google.com/uc?export=view&id=${file.data.id}`;
-//     }
-
-//     // ถ้ามีการเปลี่ยนรหัสผ่าน → เข้ารหัสใหม่
-//     let query =
-//       "UPDATE users SET tec_name=?, email=?, role=?, position=?, t_profile=? WHERE tec_id=?";
-//     let values = [tec_name, email, role, position, t_profile, userId];
-
-//     if (password) {
-//       const hashedPassword = await bcrypt.hash(password, saltRounds);
-//       query =
-//         "UPDATE users SET tec_name=?, email=?, role=?, position=?, t_profile=?, password=? WHERE tec_id=?";
-//       values = [tec_name, email, role, position, t_profile, hashedPassword, userId];
-//     }
-
-//     // อัปเดตข้อมูลใน DB
-//     await connection.promise().execute(query, values);
-
-//     res.json({ status: "ok", message: "User updated successfully" });
-//   } catch (err) {
-//     res.status(500).json({ status: "error", message: err.message });
-//   }
-// });
 
 app.post("/login", jsonParser, (req, res) => {
   connection.execute(
