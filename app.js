@@ -71,11 +71,11 @@ const upload = multer({ storage });
 // API แก้ไขข้อมูลผู้ใช้ + อัปโหลดรูปไป Google Drive
 
 // โหลด key จากไฟล์ JSON ของ Service Account
-const KEYFILEPATH = path.join(__dirname, "GOOGLE_SERVICE_KEY");
 const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
 
+// ใช้ credentials จาก .env แทน keyFile
 const auth = new google.auth.GoogleAuth({
-  keyFile: KEYFILEPATH,
+  credentials: JSON.parse(process.env.GOOGLE_SERVICE_KEY),
   scopes: SCOPES,
 });
 
