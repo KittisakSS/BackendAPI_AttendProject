@@ -13,7 +13,6 @@ const path = require("path");
 
 const { google } = require("googleapis");
 const fs = require("fs");
-const path = require("path");
 
 app.use(cors());
 app.use(bodyParser.json());
