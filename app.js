@@ -343,52 +343,110 @@ app.post("/users", jsonParser, function (req, res) {
 // Update User
 app.put("/users/:id", upload.single("profileImage"), async (req, res) => {
   const { tec_name, email, role, position, password } = req.body;
-  const t_profile = req.file ? req.file.filename : null; // รับชื่อไฟล์จาก multer
 
   try {
-    // ดึงข้อมูล t_profile เดิมจากฐานข้อมูลถ้าไม่มีการอัปโหลดรูปใหม่
+    // 1. ดึงข้อมูลผู้ใช้จาก DB
     const [results] = await connection.promise().execute(
       "SELECT t_profile FROM users WHERE tec_id = ?",
       [req.params.id]
     );
 
-    const currentProfile = results[0]?.t_profile || null;
-    const newProfile = t_profile || currentProfile; // ใช้รูปใหม่ถ้ามี หรือใช้รูปเดิมถ้าไม่มีการอัปโหลดใหม่
+    let currentProfile = results[0]?.t_profile || null;
+    let newProfile = currentProfile;
 
-    // ตรวจสอบว่ามีการส่งรหัสผ่านใหม่หรือไม่
-    let updateQuery = "UPDATE users SET tec_name = ?, email = ?, role = ?, position = ?, t_profile = ? WHERE tec_id = ?";
+    // 2. ถ้ามีการอัพโหลดรูปใหม่
+    if (req.file) {
+      const media = {
+        mimeType: req.file.mimetype,
+        body: bufferToStream(req.file.buffer),
+      };
+
+      if (currentProfile) {
+        // ✅ กรณีมีไฟล์เก่า → update ทับ
+        await drive.files.update({
+          fileId: currentProfile,
+          media,
+        });
+        newProfile = currentProfile;
+      } else {
+        // ✅ กรณีไม่มีไฟล์เก่า → create ใหม่
+        const fileMetadata = {
+          name: req.file.originalname,
+          parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
+        };
+
+        const file = await drive.files.create({
+          resource: fileMetadata,
+          media,
+          fields: "id",
+        });
+
+        const fileId = file.data.id;
+
+        await drive.permissions.create({
+          fileId,
+          requestBody: { role: "reader", type: "anyone" },
+        });
+
+        newProfile = fileId;
+      }
+    }
+
+    // 3. เตรียม query อัพเดต
+    let updateQuery =
+      "UPDATE users SET tec_name = ?, email = ?, role = ?, position = ?, t_profile = ? WHERE tec_id = ?";
     let updateValues = [tec_name, email, role, position, newProfile, req.params.id];
 
     if (password) {
-      // แฮชรหัสผ่านใหม่
       const hashedPassword = await bcrypt.hash(password, saltRounds);
-      updateQuery = "UPDATE users SET tec_name = ?, email = ?, role = ?, position = ?, t_profile = ?, password = ? WHERE tec_id = ?";
+      updateQuery =
+        "UPDATE users SET tec_name = ?, email = ?, role = ?, position = ?, t_profile = ?, password = ? WHERE tec_id = ?";
       updateValues = [tec_name, email, role, position, newProfile, hashedPassword, req.params.id];
     }
 
-    // อัปเดตข้อมูลผู้ใช้ในฐานข้อมูล
     await connection.promise().execute(updateQuery, updateValues);
 
     res.json({ status: "ok", message: "User updated successfully" });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ status: "error", message: err.message });
   }
 });
 
 
-
-
 // Delete User
-app.delete("/users/:id", function (req, res) {
-  connection.execute(
-    "DELETE FROM users WHERE tec_id = ?",
-    [req.params.id],
-    function (err) {
-      if (err) res.status(500).json({ status: "error", message: err });
-      else res.json({ status: "ok", message: "User deleted successfully" });
+app.delete("/users/:id", async function (req, res) {
+  try {
+    // 1. ดึง fileId จาก DB
+    const [results] = await connection.promise().execute(
+      "SELECT t_profile FROM users WHERE tec_id = ?",
+      [req.params.id]
+    );
+
+    const fileId = results[0]?.t_profile;
+
+    // 2. ถ้ามีไฟล์ใน Drive → ลบออก
+    if (fileId) {
+      try {
+        await drive.files.delete({ fileId });
+        console.log(`Deleted file from Google Drive: ${fileId}`);
+      } catch (err) {
+        console.error("Failed to delete file from Google Drive:", err.message);
+        // ❗ จะไม่ throw ทิ้ง (กันกรณีลบ DB ได้แต่ไฟล์ลบไม่ได้)
+      }
     }
-  );
+
+    // 3. ลบ user จาก DB
+    await connection.promise().execute("DELETE FROM users WHERE tec_id = ?", [
+      req.params.id,
+    ]);
+
+    res.json({ status: "ok", message: "User deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ status: "error", message: err.message });
+  }
 });
+
 
 app.get("/user/:tec_id", (req, res) => {
   const tec_id = req.params.tec_id;
